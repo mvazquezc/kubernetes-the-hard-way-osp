@@ -4,10 +4,10 @@ In this lab you will bootstrap the Kubernetes control plane across three compute
 
 ## Prerequisites
 
-The commands in this lab must be run on each controller instance: `controller-0`, `controller-1`, and `controller-2`. Login to each controller instance using the `gcloud` command. Example:
+The commands in this lab must be run on each controller instance: `controller-0`, `controller-1`, and `controller-2`. Login to each controller instance:
 
 ```
-gcloud compute ssh controller-0
+ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN}
 ```
 
 ### Running commands in parallel with tmux
@@ -27,7 +27,7 @@ sudo mkdir -p /etc/kubernetes/config
 Download the official Kubernetes release binaries:
 
 ```
-wget -q --show-progress --https-only --timestamping \
+wget -q --timestamping \
   "https://storage.googleapis.com/kubernetes-release/release/v1.10.2/bin/linux/amd64/kube-apiserver" \
   "https://storage.googleapis.com/kubernetes-release/release/v1.10.2/bin/linux/amd64/kube-controller-manager" \
   "https://storage.googleapis.com/kubernetes-release/release/v1.10.2/bin/linux/amd64/kube-scheduler" \
@@ -58,8 +58,7 @@ Install the Kubernetes binaries:
 The instance internal IP address will be used to advertise the API Server to members of the cluster. Retrieve the internal IP address for the current compute instance:
 
 ```
-INTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" \
-  http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
 ```
 
 Create the `kube-apiserver.service` systemd unit file:
@@ -193,89 +192,21 @@ EOF
 ```
 {
   sudo systemctl daemon-reload
-  sudo systemctl enable kube-apiserver kube-controller-manager kube-scheduler
-  sudo systemctl start kube-apiserver kube-controller-manager kube-scheduler
+  sudo systemctl enable kube-apiserver kube-controller-manager kube-scheduler --now
 }
 ```
 
 > Allow up to 10 seconds for the Kubernetes API Server to fully initialize.
 
-### Enable HTTP Health Checks
-
-A [Google Network Load Balancer](https://cloud.google.com/compute/docs/load-balancing/network) will be used to distribute traffic across the three API servers and allow each API server to terminate TLS connections and validate client certificates. The network load balancer only supports HTTP health checks which means the HTTPS endpoint exposed by the API server cannot be used. As a workaround the nginx webserver can be used to proxy HTTP health checks. In this section nginx will be installed and configured to accept HTTP health checks on port `80` and proxy the connections to the API server on `https://127.0.0.1:6443/healthz`.
-
-> The `/healthz` API server endpoint does not require authentication by default.
-
-Install a basic web server to handle HTTP health checks:
-
-```
-sudo apt-get install -y nginx
-```
-
-```
-cat > kubernetes.default.svc.cluster.local <<EOF
-server {
-  listen      80;
-  server_name kubernetes.default.svc.cluster.local;
-
-  location /healthz {
-     proxy_pass                    https://127.0.0.1:6443/healthz;
-     proxy_ssl_trusted_certificate /var/lib/kubernetes/ca.pem;
-  }
-}
-EOF
-```
+Update to the latest version of all the packages and reboot the instances just
+in case:
 
 ```
 {
-  sudo mv kubernetes.default.svc.cluster.local \
-    /etc/nginx/sites-available/kubernetes.default.svc.cluster.local
-
-  sudo ln -s /etc/nginx/sites-available/kubernetes.default.svc.cluster.local /etc/nginx/sites-enabled/
+  sudo yum update -y
+  sudo reboot
 }
 ```
-
-```
-sudo systemctl restart nginx
-```
-
-```
-sudo systemctl enable nginx
-```
-
-### Verification
-
-```
-kubectl get componentstatuses --kubeconfig admin.kubeconfig
-```
-
-```
-NAME                 STATUS    MESSAGE              ERROR
-controller-manager   Healthy   ok
-scheduler            Healthy   ok
-etcd-2               Healthy   {"health": "true"}
-etcd-0               Healthy   {"health": "true"}
-etcd-1               Healthy   {"health": "true"}
-```
-
-Test the nginx HTTP health check proxy:
-
-```
-curl -H "Host: kubernetes.default.svc.cluster.local" -i http://127.0.0.1/healthz
-```
-
-```
-HTTP/1.1 200 OK
-Server: nginx/1.14.0 (Ubuntu)
-Date: Mon, 14 May 2018 13:45:39 GMT
-Content-Type: text/plain; charset=utf-8
-Content-Length: 2
-Connection: keep-alive
-
-ok
-```
-
-> Remember to run the above commands on each controller node: `controller-0`, `controller-1`, and `controller-2`.
 
 ## RBAC for Kubelet Authorization
 
@@ -284,7 +215,7 @@ In this section you will configure RBAC permissions to allow the Kubernetes API 
 > This tutorial sets the Kubelet `--authorization-mode` flag to `Webhook`. Webhook mode uses the [SubjectAccessReview](https://kubernetes.io/docs/admin/authorization/#checking-api-access) API to determine authorization.
 
 ```
-gcloud compute ssh controller-0
+ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN}
 ```
 
 Create the `system:kube-apiserver-to-kubelet` [ClusterRole](https://kubernetes.io/docs/admin/authorization/rbac/#role-and-clusterrole) with permissions to access the Kubelet API and perform most common tasks associated with managing pods:
@@ -335,55 +266,12 @@ subjects:
 EOF
 ```
 
-## The Kubernetes Frontend Load Balancer
-
-In this section you will provision an external load balancer to front the Kubernetes API Servers. The `kubernetes-the-hard-way` static IP address will be attached to the resulting load balancer.
-
-> The compute instances created in this tutorial will not have permission to complete this section. Run the following commands from the same machine used to create the compute instances.
-
-
-### Provision a Network Load Balancer
-
-Create the external load balancer network resources:
-
-```
-{
-  KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe kubernetes-the-hard-way \
-    --region $(gcloud config get-value compute/region) \
-    --format 'value(address)')
-
-  gcloud compute http-health-checks create kubernetes \
-    --description "Kubernetes Health Check" \
-    --host "kubernetes.default.svc.cluster.local" \
-    --request-path "/healthz"
-
-  gcloud compute firewall-rules create kubernetes-the-hard-way-allow-health-check \
-    --network kubernetes-the-hard-way \
-    --source-ranges 209.85.152.0/22,209.85.204.0/22,35.191.0.0/16 \
-    --allow tcp
-
-  gcloud compute target-pools create kubernetes-target-pool \
-    --http-health-check kubernetes
-
-  gcloud compute target-pools add-instances kubernetes-target-pool \
-   --instances controller-0,controller-1,controller-2
-
-  gcloud compute forwarding-rules create kubernetes-forwarding-rule \
-    --address ${KUBERNETES_PUBLIC_ADDRESS} \
-    --ports 6443 \
-    --region $(gcloud config get-value compute/region) \
-    --target-pool kubernetes-target-pool
-}
-```
-
-### Verification
+## Verification
 
 Retrieve the `kubernetes-the-hard-way` static IP address:
 
 ```
-KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region) \
-  --format 'value(address)')
+KUBERNETES_PUBLIC_ADDRESS=$(openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
 ```
 
 Make a HTTP request for the Kubernetes version info:

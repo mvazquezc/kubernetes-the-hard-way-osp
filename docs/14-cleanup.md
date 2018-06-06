@@ -4,6 +4,8 @@ In this lab you will delete the compute resources created during this tutorial.
 
 ## Compute Instances
 
+To do
+<!---
 Delete the controller and worker compute instances:
 
 ```
@@ -11,9 +13,10 @@ gcloud -q compute instances delete \
   controller-0 controller-1 controller-2 \
   worker-0 worker-1 worker-2
 ```
-
+--->
 ## Networking
-
+To do
+<!---
 Delete the external load balancer network resources:
 
 ```
@@ -53,3 +56,4 @@ Delete the `kubernetes-the-hard-way` network VPC:
   gcloud -q compute networks delete kubernetes-the-hard-way
 }
 ```
+--->

@@ -1,8 +1,6 @@
 # Provisioning Compute Resources
 
-Kubernetes requires a set of machines to host the Kubernetes control plane and the worker nodes where containers are ultimately run. In this lab you will provision the compute resources required for running a secure and highly available Kubernetes cluster across a single [compute zone](https://cloud.google.com/compute/docs/regions-zones/regions-zones).
-
-> Ensure a default compute zone and region have been set as described in the [Prerequisites](01-prerequisites.md#set-a-default-compute-region-and-zone) lab.
+Kubernetes requires a set of machines to host the Kubernetes control plane and the worker nodes where containers are ultimately run. In this lab you will provision the compute resources required for running a secure and highly available Kubernetes cluster.
 
 ## Networking
 
@@ -10,107 +8,505 @@ The Kubernetes [networking model](https://kubernetes.io/docs/concepts/cluster-ad
 
 > Setting up network policies is out of scope for this tutorial.
 
-### Virtual Private Cloud Network
+### Public Network
+The public network is a network that contains external access and can be
+reached by the outside world. The public network creation can be only done by
+an OpenStack administrator.
 
-In this section a dedicated [Virtual Private Cloud](https://cloud.google.com/compute/docs/networks-and-firewalls#networks) (VPC) network will be setup to host the Kubernetes cluster.
+The following commands provide an example of creating an OpenStack provider
+network for public network access.
 
-Create the `kubernetes-the-hard-way` custom VPC network:
-
-```
-gcloud compute networks create kubernetes-the-hard-way --subnet-mode custom
-```
-
-A [subnet](https://cloud.google.com/compute/docs/vpc/#vpc_networks_and_subnets) must be provisioned with an IP address range large enough to assign a private IP address to each node in the Kubernetes cluster.
-
-Create the `kubernetes` subnet in the `kubernetes-the-hard-way` VPC network:
+As an OpenStack administrator:
 
 ```
-gcloud compute networks subnets create kubernetes \
-  --network kubernetes-the-hard-way \
-  --range 10.240.0.0/24
+source /path/to/admin-rc
+
+openstack network create \
+    --external \
+    --provider-network-type flat \
+    --provider-physical-network datacentre \
+    public_network
+
+openstack subnet create \
+    --gateway <ip> \
+    --allocation-pool start=<float_start>,end=<float_end> \
+    --network public_network \
+    --subnet-range <CIDR> \
+    public_subnet
+```
+
+> <float_start> and <float_end> are the associated floating IP pool provided to the network labeled public network. The Classless Inter-Domain Routing (CIDR) uses the format <ip>/<routing_prefix>, i.e. 10.5.2.1/24
+
+### Private Tenant Network
+The private tenant network is connected to the public network via a router during the network setup. This allows each OpenStack Platform instance attached to the internal network the ability to request a floating IP from the public network for public access.
+
+> Follow the OpenStack [documentation](https://docs.openstack.org/neutron/latest/admin/) for more information.
+
+Create the `kubernetes-the-hard-way` private network:
+
+```
+openstack network create kubernetes-the-hard-way
+```
+
+The `kubernetes-the-hard-way-router` router:
+
+```
+openstack router create kubernetes-the-hard-way-router
+```
+
+A subnet must be provisioned with an IP address range large enough to assign a private IP address to each node in the Kubernetes cluster.
+
+Create the `kubernetes` subnet in the `kubernetes-the-hard-way` network:
+
+```
+openstack subnet create --network kubernetes-the-hard-way \
+  --subnet-range 10.240.0.0/24 \
+  kubernetes
 ```
 
 > The `10.240.0.0/24` IP address range can host up to 254 compute instances.
 
-### Firewall Rules
-
-Create a firewall rule that allows internal communication across all protocols:
-
-```
-gcloud compute firewall-rules create kubernetes-the-hard-way-allow-internal \
-  --allow tcp,udp,icmp \
-  --network kubernetes-the-hard-way \
-  --source-ranges 10.240.0.0/24,10.200.0.0/16
-```
-
-Create a firewall rule that allows external SSH, ICMP, and HTTPS:
+Once the subnet is created, the router should be configured as the default
+gateway
 
 ```
-gcloud compute firewall-rules create kubernetes-the-hard-way-allow-external \
-  --allow tcp:22,tcp:6443,icmp \
-  --network kubernetes-the-hard-way \
-  --source-ranges 0.0.0.0/0
+openstack router add subnet kubernetes-the-hard-way-router $(openstack subnet show kubernetes -f value -c id)
+openstack router set \
+  --external-gateway $(openstack network show public_network -f value -c id) \
+  kubernetes-the-hard-way-router
 ```
 
-> An [external load balancer](https://cloud.google.com/compute/docs/load-balancing/network/) will be used to expose the Kubernetes API Servers to remote clients.
+### Security groups
 
-List the firewall rules in the `kubernetes-the-hard-way` VPC network:
+Create a security group that allows internal communication across all protocols:
 
 ```
-gcloud compute firewall-rules list --filter="network:kubernetes-the-hard-way"
+openstack security group create kubernetes-the-hard-way-allow-internal
+
+for protocol in tcp udp icmp
+do
+  openstack security group rule create \
+      --ingress \
+      --protocol ${protocol} \
+      --src-group kubernetes-the-hard-way-allow-internal \
+      kubernetes-the-hard-way-allow-internal
+done
+```
+
+Create a security group that allows external SSH, ICMP, and HTTPS:
+
+```
+openstack security group create kubernetes-the-hard-way-allow-external
+
+openstack security group rule create \
+    --ingress \
+    --protocol icmp \
+    kubernetes-the-hard-way-allow-external
+
+for port in 22 6443
+do
+  openstack security group rule create \
+      --ingress \
+      --protocol tcp \
+      --dst-port ${port} \
+      kubernetes-the-hard-way-allow-external
+done
+```
+
+List the security groups:
+
+```
+openstack security group list -f table -c ID -c Name
 ```
 
 > output
 
 ```
-NAME                                    NETWORK                  DIRECTION  PRIORITY  ALLOW                 DENY
-kubernetes-the-hard-way-allow-external  kubernetes-the-hard-way  INGRESS    1000      tcp:22,tcp:6443,icmp
-kubernetes-the-hard-way-allow-internal  kubernetes-the-hard-way  INGRESS    1000      tcp,udp,icmp
++--------------------------------------+----------------------------------------+
+| ID                                   | Name                                   |
++--------------------------------------+----------------------------------------+
+| 283e6cf0-031d-46f8-b13c-d08556b1876e | kubernetes-the-hard-way-allow-internal |
+| 665ce130-e098-4284-b784-319db7a6855f | kubernetes-the-hard-way-allow-external |
++--------------------------------------+----------------------------------------+
 ```
+### Images
+To be able to create instances, an image should be provided. Depending on the
+OpenStack environment an image catalog can be provided. In this guide we will
+use CentOS as the base operating system. Follow the nexts steps to upload a new
+CentOS image:
 
-### Kubernetes Public IP Address
-
-Allocate a static IP address that will be attached to the external load balancer fronting the Kubernetes API Servers:
-
-```
-gcloud compute addresses create kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region)
-```
-
-Verify the `kubernetes-the-hard-way` static IP address was created in your default compute region:
-
-```
-gcloud compute addresses list --filter="name=('kubernetes-the-hard-way')"
-```
-
-> output
+Download the latest CentOS Generic Cloud image (at the time of writting this guide, 1804)
 
 ```
-NAME                     REGION    ADDRESS        STATUS
-kubernetes-the-hard-way  us-west1  XX.XXX.XXX.XX  RESERVED
+wget http://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-1804_02.raw.tar.gz
+tar xzvf CentOS-7-x86_64-GenericCloud-1804_02.raw.tar.gz
+```
+
+Upload it to the Glance service:
+
+```
+openstack image create CentOS-7-x86_64-GenericCloud-1804_02 \
+    --disk-format=raw \
+    --container-format=bare < CentOS-7-x86_64-GenericCloud-1804_02.raw
+```
+
+### DNS
+
+It is required to have a proper DNS configuration. If not using DNSaaS, you can
+create an instance and setup a proper DNS following the next instructions.
+
+Create a security group to allow DNS communication within the internal network:
+
+```
+openstack security group create dns-sg
+openstack security group rule create \
+    --ingress \
+    --protocol icmp \
+    dns-sg
+openstack security group rule create \
+    --ingress \
+    --protocol tcp \
+    --dst-port 22 \
+    dns-sg
+for PROTO in udp tcp;
+do
+  openstack security group rule create \
+    --ingress \
+    --protocol $PROTO \
+    --dst-port 53 \
+    --remote-ip 10.240.0.0/24 \
+    dns-sg;
+done
+```
+
+Create an instance to host the DNS service. In this case the CentOS image is
+used.
+
+```
+export DOMAIN='k8s.lan'
+openstack server create \
+    --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id) \
+    --security-group=dns-sg \
+    --flavor m1.small \
+    --image CentOS-7-x86_64-GenericCloud-1804_02 \
+    --key-name k8s-the-hard-way \
+    dns.${DOMAIN}
+```
+
+Add a floating ip to make it reachable externally:
+
+```
+openstack server add floating ip dns.${DOMAIN} $(openstack floating ip create public_network --description dns -f value -c floating_ip_address)
+```
+
+> The domain used in this guide is configured to be k8s.lan.
+
+#### DNS service
+
+The following steps shows how to install a DNS service using named in the
+instance previously created.
+
+First, connect to the instance:
+
+```
+export DNS_EXTERNAL_IP=$(openstack server show dns.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+ssh -i ~/.ssh/k8s.pem centos@${DNS_EXTERNAL_IP}
+```
+
+Configure network resolution and install named:
+
+```
+export DOMAIN='k8s.lan'
+export UPSTREAM_DNS=$(awk '/nameserver/ { print $2 }' /etc/resolv.conf)
+sudo tee -a /etc/sysconfig/network-scripts/ifcfg-eth0 << EOF
+DNS1=${UPSTREAM_DNS}
+PEERDNS=no
+EOF
+
+sudo yum install -y firewalld python-firewall bind-utils bind
+
+sudo systemctl enable firewalld --now
+sudo firewall-cmd --zone public --add-service dns
+sudo firewall-cmd --zone public --add-service dns --permanent
+
+sudo cp /etc/named.conf{,.orig}
+
+cat <<EOF | sudo tee /etc/named.conf
+options {
+	listen-on port 53 { any; };
+	directory 	"/var/named";
+	dump-file 	"/var/named/data/cache_dump.db";
+	statistics-file "/var/named/data/named_stats.txt";
+	memstatistics-file "/var/named/data/named_mem_stats.txt";
+	allow-query     { any; };
+  forward only;
+  forwarders { ${UPSTREAM_DNS}; };
+
+	managed-keys-directory "/var/named/dynamic";
+
+	pid-file "/run/named/named.pid";
+	session-keyfile "/run/named/session.key";
+};
+
+logging {
+        channel default_debug {
+                file "data/named.run";
+                severity dynamic;
+        };
+};
+
+zone "." IN {
+	type hint;
+	file "named.ca";
+};
+
+include "/etc/named.rfc1912.zones";
+include "/etc/named.root.key";
+
+include "/etc/named/zones.conf";
+EOF
+
+cat <<EOF | sudo tee /etc/named/zones.conf
+include "/etc/named/update.key" ;
+
+zone ${DOMAIN} {
+  type master ;
+  file "/var/named/dynamic/zone.db" ;
+  allow-update { key update-key ; } ;
+};
+EOF
+
+sudo rndc-confgen -a -c /etc/named/update.key -k update-key -r /dev/urandom
+sudo chown root.named /etc/named/update.key
+sudo chmod 640 /etc/named/update.key
+
+export INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+cat <<EOF | sudo tee /var/named/dynamic/zone.db
+$ORIGIN .
+$TTL 300	; 5 minutes
+${DOMAIN}		IN SOA	dns.${DOMAIN}. admin.${DOMAIN}. (
+				1          ; serial
+				28800      ; refresh (8 hours)
+				3600       ; retry (1 hour)
+				604800     ; expire (1 week)
+				86400      ; minimum (1 day)
+				)
+			NS	dns.${DOMAIN}.
+$ORIGIN ${DOMAIN}.
+$TTL 3600	; 1 hour
+dns			     A	${INTERNAL_IP}
+controller-0 A 10.240.0.10
+controller-1 A 10.240.0.11
+controller-2 A 10.240.0.12
+worker-0     A 10.240.0.20
+worker-1     A 10.240.0.21
+worker-2     A 10.240.0.22
+```
+
+Verify everything is properly configured:
+
+```
+sudo named-checkconf /etc/named.conf
+sudo named-checkzone ${DOMAIN} /var/named/dynamic/zone.db
+```
+
+Start and enable the named service:
+
+```
+sudo systemctl enable named --now
+```
+
+Verify it is working
+
+```
+dig @${INTERNAL_IP} ${DOMAIN} axfr
+```
+
+Finally, update all packages to latest version and reboot the instance just in
+case:
+
+```
+sudo yum clean all
+sudo yum update -y
+sudo reboot
+```
+
+After installing the DNS service, modify the private subnet to use that DNS
+service:
+
+```
+DNS_INTERNAL_IP=$(openstack server show dns.${DOMAIN} -f value -c addresses | awk -F'[=,]' '{print $2}')
+openstack subnet set --dns-nameserver DNS_INTERNAL_IP kubernetes
+```
+
+### Load Balancer
+In order to have a proper Kubernetes high available environment, a Load balancer
+is required to distribute the API load. If not using LBaaS, you can create an
+instance and setup a proper Load balancer following the next instructions.
+
+Create an instance to host the DNS service. In this case the CentOS image is
+used.
+
+```
+export DOMAIN='k8s.lan'
+openstack server create \
+  --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id) \
+  --security-group kubernetes-the-hard-way-allow-internal \
+  --security-group kubernetes-the-hard-way-allow-external \
+  --flavor m1.small \
+  --image CentOS-7-x86_64-GenericCloud-1804_02 \
+  --key-name k8s-the-hard-way \
+  k8sosp.${DOMAIN}
+```
+Add a floating ip to make it reachable externally:
+
+```
+openstack server add floating ip k8sosp.${DOMAIN} $(openstack floating ip create public_network --description k8s-lb -f value -c floating_ip_address)
+```
+
+#### Load balancer service
+
+The following steps shows how to install a load balancer service using HAProxy in the instance previously created.
+
+First, connect to the instance:
+
+```
+export LB_EXTERNAL_IP=$(openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+ssh -i ~/.ssh/k8s.pem centos@${LB_EXTERNAL_IP}
+```
+
+Install and configure HAProxy
+
+```
+sudo yum install -y haproxy
+
+sudo tee /etc/haproxy/haproxy.cfg << EOF
+global
+    log         127.0.0.1 local2
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     4000
+    user        haproxy
+    group       haproxy
+    daemon
+    stats socket /var/lib/haproxy/stats
+
+defaults
+    log                     global
+    option                  httplog
+    option                  dontlognull
+    option                  http-server-close
+    option                  redispatch
+    retries                 3
+    timeout http-request    10s
+    timeout queue           1m
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 10s
+    timeout check           10s
+    maxconn                 3000
+
+listen stats :9000
+    stats enable
+    stats realm Haproxy\ Statistics
+    stats uri /haproxy_stats
+    stats auth admin:password
+    stats refresh 30
+    mode http
+
+frontend  main *:6443
+    default_backend mgmt6443
+
+backend mgmt6443
+    balance source
+    mode tcp
+    # MASTERS 6443
+    server controller-0.${DOMAIN} 10.240.0.10:6443 check
+    server controller-1.${DOMAIN} 10.240.0.11:6443 check
+    server controller-2.${DOMAIN} 10.240.0.12:6443 check
+EOF
+```
+
+As the Kubernetes port is 6443, the selinux policy should be modified to allow
+haproxy to listen on that particular port:
+
+```
+sudo semanage port --add --type http_port_t --proto tcp 6443
+```
+
+Verify everything is properly configured:
+
+```
+haproxy -c -V -f /etc/haproxy/haproxy.cfg
+```
+
+Start and enable the service
+
+```
+sudo systemctl enable haproxy --now
+```
+
+Finally, update all packages to latest version and reboot the instance just in
+case:
+
+```
+sudo yum clean all
+sudo yum update -y
+sudo reboot
+```
+
+### Add Load balancer to DNS
+
+Now that the load balancer has been created, the DNS zone needs to be updated
+to add the load balancer.
+
+Connect to the DNS instance:
+
+```
+export LB_INTERNAL_IP=$(openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+export DNS_EXTERNAL_IP=$(openstack server show dns.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+ssh -i ~/.ssh/k8s.pem centos@${DNS_EXTERNAL_IP}
+```
+
+Update the zone:
+
+```
+export INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+sudo nsupdate -k /etc/named/update.key <<EOF
+server ${INTERNAL_IP}
+zone k8s.lan
+Update add k8sosp.k8s.lan 3600 A ${LB_INTERNAL_IP}
+send
+quit
+EOF
+```
+
+Verify it:
+
+```
+dig @${INTERNAL_IP} ${DOMAIN} axfr
 ```
 
 ## Compute Instances
 
-The compute instances in this lab will be provisioned using [Ubuntu Server](https://www.ubuntu.com/server) 18.04, which has good support for the [containerd container runtime](https://github.com/containerd/containerd). Each compute instance will be provisioned with a fixed private IP address to simplify the Kubernetes bootstrapping process.
+Each compute instance will be provisioned with a fixed private IP address to simplify the Kubernetes bootstrapping process.
 
 ### Kubernetes Controllers
 
 Create three compute instances which will host the Kubernetes control plane:
 
 ```
-for i in 0 1 2; do
-  gcloud compute instances create controller-${i} \
-    --async \
-    --boot-disk-size 200GB \
-    --can-ip-forward \
-    --image-family ubuntu-1804-lts \
-    --image-project ubuntu-os-cloud \
-    --machine-type n1-standard-1 \
-    --private-network-ip 10.240.0.1${i} \
-    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
-    --subnet kubernetes \
-    --tags kubernetes-the-hard-way,controller
+for i in 0 1 2;
+do
+  openstack server create \
+    --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id),v4-fixed-ip=10.240.0.1${i} \
+    --flavor m1.medium \
+    --image CentOS-7-x86_64-GenericCloud-1804_02 \
+    --key-name k8s-the-hard-way \
+    --security-groups kubernetes-the-hard-way-allow-external,kubernetes-the-hard-way-allow-internal \
+    controller-${i}.${DOMAIN};
+   openstack server add floating ip controller-${i}.${DOMAIN} $(openstack floating ip create public_network -f value -c floating_ip_address)
 done
 ```
 
@@ -123,108 +519,46 @@ Each worker instance requires a pod subnet allocation from the Kubernetes cluste
 Create three compute instances which will host the Kubernetes worker nodes:
 
 ```
-for i in 0 1 2; do
-  gcloud compute instances create worker-${i} \
-    --async \
-    --boot-disk-size 200GB \
-    --can-ip-forward \
-    --image-family ubuntu-1804-lts \
-    --image-project ubuntu-os-cloud \
-    --machine-type n1-standard-1 \
-    --metadata pod-cidr=10.200.${i}.0/24 \
-    --private-network-ip 10.240.0.2${i} \
-    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
-    --subnet kubernetes \
-    --tags kubernetes-the-hard-way,worker
+for i in 0 1 2;
+do
+  openstack server create \
+    --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id),v4-fixed-ip=10.240.0.2${i} \
+    --flavor m1.medium \
+    --image CentOS-7-x86_64-GenericCloud-1804_02 \
+    --key-name k8s-the-hard-way \
+    --security-groups kubernetes-the-hard-way-allow-external,kubernetes-the-hard-way-allow-internal \
+    worker-${i}.${DOMAIN};
+   openstack server add floating ip worker-${i}.${DOMAIN} $(openstack floating ip create public_network -f value -c floating_ip_address)
 done
 ```
 
 ### Verification
 
-List the compute instances in your default compute zone:
+List the compute instances:
 
 ```
-gcloud compute instances list
+openstack server list -f table -c Name -c Networks -c Flavor -c Status
 ```
 
 > output
 
 ```
-NAME          ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     STATUS
-controller-0  us-west1-c  n1-standard-1               10.240.0.10  XX.XXX.XXX.XXX  RUNNING
-controller-1  us-west1-c  n1-standard-1               10.240.0.11  XX.XXX.X.XX     RUNNING
-controller-2  us-west1-c  n1-standard-1               10.240.0.12  XX.XXX.XXX.XX   RUNNING
-worker-0      us-west1-c  n1-standard-1               10.240.0.20  XXX.XXX.XXX.XX  RUNNING
-worker-1      us-west1-c  n1-standard-1               10.240.0.21  XX.XXX.XX.XXX   RUNNING
-worker-2      us-west1-c  n1-standard-1               10.240.0.22  XXX.XXX.XX.XX   RUNNING
++------------------------+--------+----------------------------------------------------+-----------+
+| Name                   | Status | Networks                                           | Flavor    |
++------------------------+--------+----------------------------------------------------+-----------+
+| k8sosp.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.4, X.X.X.X  | m1.small  |
+| node-2.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.22, X.X.X.X | m1.medium |
+| node-1.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.21, X.X.X.X  | m1.medium |
+| node-0.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.20, X.X.X.X | m1.medium |
+| controller-2.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.12, X.X.X.X | m1.medium |
+| controller-1.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.11, X.X.X.X  | m1.medium |
+| controller-0.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.10, X.X.X.X  | m1.medium |
+| dns.k8s.lan      | ACTIVE | kubernetes-the-hard-way=10.240.0.9, X.X.X.X   | m1.small  |
++------------------------+--------+----------------------------------------------------+-----------+
 ```
 
-## Configuring SSH Access
-
-SSH will be used to configure the controller and worker instances. When connecting to compute instances for the first time SSH keys will be generated for you and stored in the project or instance metadata as describe in the [connecting to instances](https://cloud.google.com/compute/docs/instances/connecting-to-instance) documentation.
-
-Test SSH access to the `controller-0` compute instances:
-
-```
-gcloud compute ssh controller-0
-```
-
-If this is your first time connecting to a compute instance SSH keys will be generated for you. Enter a passphrase at the prompt to continue:
-
-```
-WARNING: The public SSH key file for gcloud does not exist.
-WARNING: The private SSH key file for gcloud does not exist.
-WARNING: You do not have an SSH key for gcloud.
-WARNING: SSH keygen will be executed to generate a key.
-Generating public/private rsa key pair.
-Enter passphrase (empty for no passphrase):
-Enter same passphrase again:
-```
-
-At this point the generated SSH keys will be uploaded and stored in your project:
-
-```
-Your identification has been saved in /home/$USER/.ssh/google_compute_engine.
-Your public key has been saved in /home/$USER/.ssh/google_compute_engine.pub.
-The key fingerprint is:
-SHA256:nz1i8jHmgQuGt+WscqP5SeIaSy5wyIJeL71MuV+QruE $USER@$HOSTNAME
-The key's randomart image is:
-+---[RSA 2048]----+
-|                 |
-|                 |
-|                 |
-|        .        |
-|o.     oS        |
-|=... .o .o o     |
-|+.+ =+=.+.X o    |
-|.+ ==O*B.B = .   |
-| .+.=EB++ o      |
-+----[SHA256]-----+
-Updating project ssh metadata...-Updated [https://www.googleapis.com/compute/v1/projects/$PROJECT_ID].
-Updating project ssh metadata...done.
-Waiting for SSH key to propagate.
-```
-
-After the SSH keys have been updated you'll be logged into the `controller-0` instance:
-
-```
-Welcome to Ubuntu 18.04 LTS (GNU/Linux 4.15.0-1006-gcp x86_64)
-
-...
-
-Last login: Sun May 13 14:34:27 2018 from XX.XXX.XXX.XX
-```
-
-Type `exit` at the prompt to exit the `controller-0` compute instance:
-
-```
-$USER@controller-0:~$ exit
-```
-> output
-
-```
-logout
-Connection to XX.XXX.XXX.XXX closed
-```
+> As the DNS server is created internally, it can be a good idea to configure an
+external DNS server to use the public ips to avoid using IPs to connect to the
+instances (or the local /etc/hosts in your workstation)
 
 Next: [Provisioning a CA and Generating TLS Certificates](04-certificate-authority.md)

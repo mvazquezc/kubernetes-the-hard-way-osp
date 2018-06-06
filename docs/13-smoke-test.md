@@ -174,19 +174,20 @@ NODE_PORT=$(kubectl get svc nginx \
   --output=jsonpath='{range .spec.ports[0]}{.nodePort}')
 ```
 
-Create a firewall rule that allows remote access to the `nginx` node port:
+Create a security group rule that allows remote access to the `nginx` node port:
 
 ```
-gcloud compute firewall-rules create kubernetes-the-hard-way-allow-nginx-service \
-  --allow=tcp:${NODE_PORT} \
-  --network kubernetes-the-hard-way
+openstack security group rule create \
+  --ingress \
+  --protocol tcp \
+  --dst-port ${NODE_PORT} \
+  kubernetes-the-hard-way-allow-external
 ```
 
 Retrieve the external IP address of a worker instance:
 
 ```
-EXTERNAL_IP=$(gcloud compute instances describe worker-0 \
-  --format 'value(networkInterfaces[0].accessConfigs[0].natIP)')
+EXTERNAL_IP=$(openstack server show worker-0.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
 ```
 
 Make an HTTP request using the external IP address and the `nginx` node port:
@@ -256,13 +257,13 @@ INSTANCE_NAME=$(kubectl get pod untrusted --output=jsonpath='{.spec.nodeName}')
 SSH into the worker node:
 
 ```
-gcloud compute ssh ${INSTANCE_NAME}
+ssh -i ~/.ssh/k8s.pem ${INSTANCE_NAME}
 ```
 
 List the containers running under gVisor:
 
 ```
-sudo runsc --root  /run/containerd/runsc/k8s.io list
+sudo /usr/local/bin/runsc --root /run/containerd/runc/k8s.io list
 ```
 ```
 I0514 14:03:56.108368   14988 x:0] ***************************
@@ -286,21 +287,21 @@ I0514 14:03:56.111287   14988 x:0] Exiting with status: 0
 Get the ID of the `untrusted` pod:
 
 ```
-POD_ID=$(sudo crictl -r unix:///var/run/containerd/containerd.sock \
+POD_ID=$(sudo /usr/local/bin/crictl -r unix:///var/run/containerd/containerd.sock \
   pods --name untrusted -q)
 ```
 
 Get the ID of the `webserver` container running in the `untrusted` pod:
 
 ```
-CONTAINER_ID=$(sudo crictl -r unix:///var/run/containerd/containerd.sock \
+CONTAINER_ID=$(sudo /usr/local/bin/crictl -r unix:///var/run/containerd/containerd.sock \
   ps -p ${POD_ID} -q)
 ```
 
 Use the gVisor `runsc` command to display the processes running inside the `webserver` container:
 
 ```
-sudo runsc --root /run/containerd/runsc/k8s.io ps ${CONTAINER_ID}
+sudo /usr/local/bin/runsc --root /run/containerd/runc/k8s.io ps ${CONTAINER_ID}
 ```
 
 > output

@@ -13,9 +13,7 @@ Each kubeconfig requires a Kubernetes API Server to connect to. To support high 
 Retrieve the `kubernetes-the-hard-way` static IP address:
 
 ```
-KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region) \
-  --format 'value(address)')
+KUBERNETES_PUBLIC_ADDRESS=$(openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
 ```
 
 ### The kubelet Kubernetes Configuration File
@@ -32,7 +30,7 @@ for instance in worker-0 worker-1 worker-2; do
     --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
     --kubeconfig=${instance}.kubeconfig
 
-  kubectl config set-credentials system:node:${instance} \
+  kubectl config set-credentials system:node:${instance}.${DOMAIN} \
     --client-certificate=${instance}.pem \
     --client-key=${instance}-key.pem \
     --embed-certs=true \
@@ -40,7 +38,7 @@ for instance in worker-0 worker-1 worker-2; do
 
   kubectl config set-context default \
     --cluster=kubernetes-the-hard-way \
-    --user=system:node:${instance} \
+    --user=system:node:${instance}.${DOMAIN} \
     --kubeconfig=${instance}.kubeconfig
 
   kubectl config use-context default --kubeconfig=${instance}.kubeconfig
@@ -189,7 +187,7 @@ admin.kubeconfig
 ```
 
 
-## 
+##
 
 ## Distribute the Kubernetes Configuration Files
 
@@ -197,7 +195,7 @@ Copy the appropriate `kubelet` and `kube-proxy` kubeconfig files to each worker 
 
 ```
 for instance in worker-0 worker-1 worker-2; do
-  gcloud compute scp ${instance}.kubeconfig kube-proxy.kubeconfig ${instance}:~/
+  scp -i ~/.ssh/k8s.pem ${instance}.kubeconfig kube-proxy.kubeconfig centos@${instance}.${DOMAIN}:
 done
 ```
 
@@ -205,7 +203,7 @@ Copy the appropriate `kube-controller-manager` and `kube-scheduler` kubeconfig f
 
 ```
 for instance in controller-0 controller-1 controller-2; do
-  gcloud compute scp admin.kubeconfig kube-controller-manager.kubeconfig kube-scheduler.kubeconfig ${instance}:~/
+  scp -i ~/.ssh/k8s.pem admin.kubeconfig kube-controller-manager.kubeconfig kube-scheduler.kubeconfig centos@${instance}.${DOMAIN}:
 done
 ```
 

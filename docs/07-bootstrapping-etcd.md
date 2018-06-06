@@ -7,7 +7,7 @@ Kubernetes components are stateless and store cluster state in [etcd](https://gi
 The commands in this lab must be run on each controller instance: `controller-0`, `controller-1`, and `controller-2`. Login to each controller instance using the `gcloud` command. Example:
 
 ```
-gcloud compute ssh controller-0
+ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN}
 ```
 
 ### Running commands in parallel with tmux
@@ -21,7 +21,7 @@ gcloud compute ssh controller-0
 Download the official etcd release binaries from the [coreos/etcd](https://github.com/coreos/etcd) GitHub project:
 
 ```
-wget -q --show-progress --https-only --timestamping \
+wget -q --timestamping \
   "https://github.com/coreos/etcd/releases/download/v3.3.5/etcd-v3.3.5-linux-amd64.tar.gz"
 ```
 
@@ -46,8 +46,7 @@ Extract and install the `etcd` server and the `etcdctl` command line utility:
 The instance internal IP address will be used to serve client requests and communicate with etcd cluster peers. Retrieve the internal IP address for the current compute instance:
 
 ```
-INTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" \
-  http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
 ```
 
 Each etcd member must have a unique name within an etcd cluster. Set the etcd name to match the hostname of the current compute instance:
@@ -96,8 +95,7 @@ EOF
 ```
 {
   sudo systemctl daemon-reload
-  sudo systemctl enable etcd
-  sudo systemctl start etcd
+  sudo systemctl enable etcd --now
 }
 ```
 
@@ -108,7 +106,7 @@ EOF
 List the etcd cluster members:
 
 ```
-sudo ETCDCTL_API=3 etcdctl member list \
+sudo ETCDCTL_API=3 /usr/local/bin/etcdctl member list \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/etcd/ca.pem \
   --cert=/etc/etcd/kubernetes.pem \

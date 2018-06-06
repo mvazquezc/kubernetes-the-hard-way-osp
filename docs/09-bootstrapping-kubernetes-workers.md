@@ -4,10 +4,10 @@ In this lab you will bootstrap three Kubernetes worker nodes. The following comp
 
 ## Prerequisites
 
-The commands in this lab must be run on each worker instance: `worker-0`, `worker-1`, and `worker-2`. Login to each worker instance using the `gcloud` command. Example:
+The commands in this lab must be run on each worker instance: `worker-0`, `worker-1`, and `worker-2`. Login to each worker instance:
 
 ```
-gcloud compute ssh worker-0
+ssh -i ~/.ssh/k8s.pem worker-0.${DOMAIN}
 ```
 
 ### Running commands in parallel with tmux
@@ -20,17 +20,29 @@ Install the OS dependencies:
 
 ```
 {
-  sudo apt-get update
-  sudo apt-get -y install socat conntrack ipset
+  sudo yum install epel-release -y
+  sudo yum install socat conntrack ipset wget jq -y
+  sudo yum-config-manager --disable epel
 }
 ```
 
 > The socat binary enables support for the `kubectl port-forward` command.
 
-### Download and Install Worker Binaries
+Update to the latest version of all the packages and reboot the instances just in case:
 
 ```
-wget -q --show-progress --https-only --timestamping \
+{
+  sudo yum update -y
+  sudo reboot
+}
+```
+
+### Download and Install Worker Binaries
+
+Login back to the workers and perform the following commands:
+
+```
+wget -q --timestamping \
   https://github.com/kubernetes-incubator/cri-tools/releases/download/v1.0.0-beta.0/crictl-v1.0.0-beta.0-linux-amd64.tar.gz \
   https://storage.googleapis.com/kubernetes-the-hard-way/runsc \
   https://github.com/opencontainers/runc/releases/download/v1.0.0-rc5/runc.amd64 \
@@ -58,11 +70,12 @@ Install the worker binaries:
 ```
 {
   chmod +x kubectl kube-proxy kubelet runc.amd64 runsc
+  tar -xvf containerd-1.1.0.linux-amd64.tar.gz
   sudo mv runc.amd64 runc
   sudo mv kubectl kube-proxy kubelet runc runsc /usr/local/bin/
   sudo tar -xvf crictl-v1.0.0-beta.0-linux-amd64.tar.gz -C /usr/local/bin/
   sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/
-  sudo tar -xvf containerd-1.1.0.linux-amd64.tar.gz -C /
+  sudo mv bin/* /bin/
 }
 ```
 
@@ -71,8 +84,7 @@ Install the worker binaries:
 Retrieve the Pod CIDR range for the current compute instance:
 
 ```
-POD_CIDR=$(curl -s -H "Metadata-Flavor: Google" \
-  http://metadata.google.internal/computeMetadata/v1/instance/attributes/pod-cidr)
+POD_CIDR=$(curl -s http://169.254.169.254/openstack/latest/meta_data.json | jq -r '.meta."pod-cidr"')
 ```
 
 Create the `bridge` network configuration file:
@@ -266,8 +278,7 @@ EOF
 ```
 {
   sudo systemctl daemon-reload
-  sudo systemctl enable containerd kubelet kube-proxy
-  sudo systemctl start containerd kubelet kube-proxy
+  sudo systemctl enable containerd kubelet kube-proxy --now
 }
 ```
 
@@ -280,8 +291,8 @@ EOF
 List the registered Kubernetes nodes:
 
 ```
-gcloud compute ssh controller-0 \
-  --command "kubectl get nodes --kubeconfig admin.kubeconfig"
+ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN} \
+  "kubectl get nodes --kubeconfig admin.kubeconfig"
 ```
 
 > output

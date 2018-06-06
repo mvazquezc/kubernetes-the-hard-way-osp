@@ -1,48 +1,82 @@
 # Prerequisites
 
-## Google Cloud Platform
+## OpenStack Platform
 
-This tutorial leverages the [Google Cloud Platform](https://cloud.google.com/) to streamline provisioning of the compute infrastructure required to bootstrap a Kubernetes cluster from the ground up. [Sign up](https://cloud.google.com/free/) for $300 in free credits.
+This tutorial leverages the [OpenStack Platform](https://www.openstack.org/) to
+streamline provisioning of the compute infrastructure required to bootstrap a
+Kubernetes cluster from the ground up.
 
-[Estimated cost](https://cloud.google.com/products/calculator/#id=78df6ced-9c50-48f8-a670-bc5003f2ddaa) to run this tutorial: $0.22 per hour ($5.39 per day).
+The OpenStack Platform environment requires a project (tenant) to stores the
+required instances that are to install Kubernetes. This project requires
+ownership by a user and role of that user to be set to member.
 
-> The compute resources required for this tutorial exceed the Google Cloud Platform free tier.
+> Those steps are required to be executed by an OpenStack administrator
 
-## Google Cloud Platform SDK
-
-### Install the Google Cloud SDK
-
-Follow the Google Cloud SDK [documentation](https://cloud.google.com/sdk/) to install and configure the `gcloud` command line utility.
-
-Verify the Google Cloud SDK version is 200.0.0 or higher:
+Create a project (tenant) that is to store the OpenStack instances
 
 ```
-gcloud version
+openstack project create <project>
 ```
 
-### Set a Default Compute Region and Zone
-
-This tutorial assumes a default compute region and zone have been configured.
-
-If you are using the `gcloud` command-line tool for the first time `init` is the easiest way to do this:
+Create an OpenStack Platform user that has ownership of the previously created project:
 
 ```
-gcloud init
+openstack user create --password <password> <username>
 ```
 
-Otherwise set a default compute region:
+Set the role of the user:
 
 ```
-gcloud config set compute/region us-west1
+openstack role add --user <username> --project <project> member
 ```
 
-Set a default compute zone:
+## OpenStack CLI
+
+### Install the OpenStack CLI
+
+Follow the OpenStack CLI [documentation](https://docs.openstack.org/newton/user-guide/common/cli-install-openstack-command-line-clients.html) to install and configure the `openstack`
+command line utility in your workstation.
+
+Verify the OpenStack CLI version is 3.12.0 or higher:
 
 ```
-gcloud config set compute/zone us-west1-c
+openstack --version
 ```
 
-> Use the `gcloud compute zones list` command to view additional regions and zones.
+### Set environment variables using the OpenStack RC file
+
+To set the required environment variables for the OpenStack command-line clients, you must create an environment file called an OpenStack rc file, or openrc.sh file. If your OpenStack installation provides it, you can download the file from the OpenStack dashboard as an administrative user or any other user. This project-specific environment file contains the credentials that all OpenStack services use.
+
+When you source the file, environment variables are set for your current shell. The variables enable the OpenStack client commands to communicate with the OpenStack services that run in the cloud.
+
+Follow the OpenStack CLI [documentation](https://docs.openstack.org/newton/user-guide/common/cli-set-environment-variables-using-openstack-rc.html) to properly configure your `openstack` CLI.
+
+After downloading or creating the OpenStack RC file, it is required to use it
+by sourcing it:
+
+```
+. ~/openstack/openrc.sh
+```
+Test if working by trying to gather the instances running:
+
+```
+openstack server list
+```
+
+### OpenStack keypair
+OpenStack Platform uses cloud-init to place an ssh public key on each instance as it is created to allow ssh access to the instance. OpenStack Platform expects the user to hold the private key.
+
+In order to generate a keypair use the following command:
+
+```
+openstack keypair create k8s-the-hard-way > ~/.ssh/k8s.pem
+```
+
+Once the keypair is created, set the permissions to 600 thus only allowing the owner of the file to read and write to that file.
+
+```
+chmod 600 ~/.ssh/k8s.pem
+```
 
 ## Running Commands in Parallel with tmux
 

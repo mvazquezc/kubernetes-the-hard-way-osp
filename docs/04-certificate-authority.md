@@ -109,13 +109,15 @@ admin.pem
 
 Kubernetes uses a [special-purpose authorization mode](https://kubernetes.io/docs/admin/authorization/node/) called Node Authorizer, that specifically authorizes API requests made by [Kubelets](https://kubernetes.io/docs/concepts/overview/components/#kubelet). In order to be authorized by the Node Authorizer, Kubelets must use a credential that identifies them as being in the `system:nodes` group, with a username of `system:node:<nodeName>`. In this section you will create a certificate for each Kubernetes worker node that meets the Node Authorizer requirements.
 
+> The <nodeName> will use the FQDN.
+
 Generate a certificate and private key for each Kubernetes worker node:
 
 ```
 for instance in worker-0 worker-1 worker-2; do
 cat > ${instance}-csr.json <<EOF
 {
-  "CN": "system:node:${instance}",
+  "CN": "system:node:${instance}.${DOMAIN}",
   "key": {
     "algo": "rsa",
     "size": 2048
@@ -132,17 +134,14 @@ cat > ${instance}-csr.json <<EOF
 }
 EOF
 
-EXTERNAL_IP=$(gcloud compute instances describe ${instance} \
-  --format 'value(networkInterfaces[0].accessConfigs[0].natIP)')
-
-INTERNAL_IP=$(gcloud compute instances describe ${instance} \
-  --format 'value(networkInterfaces[0].networkIP)')
+EXTERNAL_IP=$(openstack server show ${instance}.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+INTERNAL_IP=$(openstack server show ${instance}.${DOMAIN} -f value -c addresses | awk -F'[=,]' '{print $2}')
 
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
-  -hostname=${instance},${EXTERNAL_IP},${INTERNAL_IP} \
+  -hostname=${instance}.${DOMAIN},${instance},${EXTERNAL_IP},${INTERNAL_IP} \
   -profile=kubernetes \
   ${instance}-csr.json | cfssljson -bare ${instance}
 done
@@ -299,9 +298,7 @@ Generate the Kubernetes API Server certificate and private key:
 ```
 {
 
-KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region) \
-  --format 'value(address)')
+KUBERNETES_PUBLIC_ADDRESS=$(openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
 
 cat > kubernetes-csr.json <<EOF
 {
@@ -326,7 +323,7 @@ cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
-  -hostname=10.32.0.1,10.240.0.10,10.240.0.11,10.240.0.12,${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
+  -hostname=k8sosp.${DOMAIN},10.32.0.1,10.240.0.10,10.240.0.11,10.240.0.12,${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
   -profile=kubernetes \
   kubernetes-csr.json | cfssljson -bare kubernetes
 
@@ -385,14 +382,13 @@ service-account-key.pem
 service-account.pem
 ```
 
-
 ## Distribute the Client and Server Certificates
 
 Copy the appropriate certificates and private keys to each worker instance:
 
 ```
 for instance in worker-0 worker-1 worker-2; do
-  gcloud compute scp ca.pem ${instance}-key.pem ${instance}.pem ${instance}:~/
+  scp -i ~/.ssh/k8s.pem ca.pem ${instance}-key.pem ${instance}.pem centos@${instance}.${DOMAIN}:
 done
 ```
 
@@ -400,8 +396,8 @@ Copy the appropriate certificates and private keys to each controller instance:
 
 ```
 for instance in controller-0 controller-1 controller-2; do
-  gcloud compute scp ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem \
-    service-account-key.pem service-account.pem ${instance}:~/
+  scp -i ~/.ssh/k8s.pem ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem \
+    service-account-key.pem service-account.pem centos@${instance}.${DOMAIN}:
 done
 ```
 
