@@ -526,6 +526,7 @@ do
     --flavor m1.medium \
     --image CentOS-7-x86_64-GenericCloud-1804_02 \
     --key-name k8s-the-hard-way \
+    --property pod-cidr=10.200.${i}.0/24 \
     --security-groups kubernetes-the-hard-way-allow-external,kubernetes-the-hard-way-allow-internal \
     worker-${i}.${DOMAIN};
    openstack server add floating ip worker-${i}.${DOMAIN} $(openstack floating ip create public_network -f value -c floating_ip_address)
