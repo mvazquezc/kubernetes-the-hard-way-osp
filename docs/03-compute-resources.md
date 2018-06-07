@@ -185,7 +185,7 @@ used.
 ```
 export DOMAIN='k8s.lan'
 openstack server create \
-    --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id) \
+    --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id),v4-fixed-ip=10.240.0.100 \
     --security-group=kubernetes-the-hard-way-allow-dns \
     --flavor m1.small \
     --image CentOS-7-x86_64-GenericCloud-1804_02 \
@@ -231,7 +231,7 @@ sudo firewall-cmd --zone public --add-service dns --permanent
 
 sudo cp /etc/named.conf{,.orig}
 
-cat <<EOF | sudo tee /etc/named.conf
+sudo tee /etc/named.conf << EOF
 options {
   listen-on port 53 { any; };
   directory "/var/named";
@@ -264,7 +264,7 @@ include "/etc/named.root.key";
 include "/etc/named/zones.conf";
 EOF
 
-cat <<EOF | sudo tee /etc/named/zones.conf
+sudo tee /etc/named/zones.conf << EOF
 include "/etc/named/update.key" ;
 
 zone ${DOMAIN} {
@@ -279,9 +279,9 @@ sudo chown root.named /etc/named/update.key
 sudo chmod 640 /etc/named/update.key
 
 export INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-cat <<EOF | sudo tee /var/named/dynamic/zone.db
-$ORIGIN .
-$TTL 300	; 5 minutes
+sudo tee /var/named/dynamic/zone.db << EOF
+\$ORIGIN .
+\$TTL 300	; 5 minutes
 ${DOMAIN} IN SOA dns.${DOMAIN}. admin.${DOMAIN}. (
         1          ; serial
         28800      ; refresh (8 hours)
@@ -290,8 +290,8 @@ ${DOMAIN} IN SOA dns.${DOMAIN}. admin.${DOMAIN}. (
         86400      ; minimum (1 day)
         )
         NS dns.${DOMAIN}.
-$ORIGIN ${DOMAIN}.
-$TTL 3600	; 1 hour
+\$ORIGIN ${DOMAIN}.
+\$TTL 3600	; 1 hour
 dns          A ${INTERNAL_IP}
 controller-0 A 10.240.0.10
 controller-1 A 10.240.0.11
@@ -335,7 +335,7 @@ service:
 
 ```
 DNS_INTERNAL_IP=$(openstack server show dns.${DOMAIN} -f value -c addresses | awk -F'[=,]' '{print $2}')
-openstack subnet set --dns-nameserver DNS_INTERNAL_IP kubernetes
+openstack subnet set --dns-nameserver ${DNS_INTERNAL_IP} kubernetes
 ```
 
 ### Load Balancer
@@ -349,7 +349,7 @@ used.
 ```
 export DOMAIN='k8s.lan'
 openstack server create \
-  --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id) \
+  --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id),v4-fixed-ip=10.240.0.200 \
   --security-group kubernetes-the-hard-way-allow-internal \
   --security-group kubernetes-the-hard-way-allow-external \
   --flavor m1.small \
@@ -377,6 +377,7 @@ ssh -i ~/.ssh/k8s.pem centos@${LB_EXTERNAL_IP}
 Install and configure HAProxy
 
 ```
+export DOMAIN='k8s.lan'
 sudo yum install -y haproxy
 
 sudo tee /etc/haproxy/haproxy.cfg << EOF
@@ -463,19 +464,23 @@ to add the load balancer.
 Connect to the DNS instance:
 
 ```
-export LB_INTERNAL_IP=$(openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+openstack server show k8sosp.${DOMAIN} -f value -c addresses | awk -F'[=,]' '{print $2}' > lb_internal_ip
 export DNS_EXTERNAL_IP=$(openstack server show dns.${DOMAIN} -f value -c addresses | awk '{ print $2 }')
+scp -i ~/.ssh/k8s.pem lb_internal_ip centos@${DNS_EXTERNAL_IP}:lb_internal_ip
 ssh -i ~/.ssh/k8s.pem centos@${DNS_EXTERNAL_IP}
 ```
 
 Update the zone:
 
 ```
+export DOMAIN="k8s.lan"
 export INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+export LB_INTERNAL_IP=$(cat lb_internal_ip)
+rm -f lb_internal_ip
 sudo nsupdate -k /etc/named/update.key <<EOF
 server ${INTERNAL_IP}
-zone k8s.lan
-Update add k8sosp.k8s.lan 3600 A ${LB_INTERNAL_IP}
+zone ${DOMAIN}
+update add k8sosp.${DOMAIN} 3600 A ${LB_INTERNAL_IP}
 send
 quit
 EOF
@@ -496,6 +501,7 @@ Each compute instance will be provisioned with a fixed private IP address to sim
 Create three compute instances which will host the Kubernetes control plane:
 
 ```
+export DOMAIN="k8s.lan"
 for i in 0 1 2;
 do
   openstack server create \
@@ -503,7 +509,8 @@ do
     --flavor m1.medium \
     --image CentOS-7-x86_64-GenericCloud-1804_02 \
     --key-name k8s-the-hard-way \
-    --security-groups kubernetes-the-hard-way-allow-external,kubernetes-the-hard-way-allow-internal \
+    --security-group kubernetes-the-hard-way-allow-external \
+    --security-group kubernetes-the-hard-way-allow-internal \
     controller-${i}.${DOMAIN};
    openstack server add floating ip controller-${i}.${DOMAIN} $(openstack floating ip create public_network -f value -c floating_ip_address)
 done
@@ -518,6 +525,7 @@ Each worker instance requires a pod subnet allocation from the Kubernetes cluste
 Create three compute instances which will host the Kubernetes worker nodes:
 
 ```
+export DOMAIN="k8s.lan"
 for i in 0 1 2;
 do
   openstack server create \
@@ -526,7 +534,8 @@ do
     --image CentOS-7-x86_64-GenericCloud-1804_02 \
     --key-name k8s-the-hard-way \
     --property pod-cidr=10.200.${i}.0/24 \
-    --security-groups kubernetes-the-hard-way-allow-external,kubernetes-the-hard-way-allow-internal \
+    --security-group kubernetes-the-hard-way-allow-external \
+    --security-group kubernetes-the-hard-way-allow-internal \
     worker-${i}.${DOMAIN};
    openstack server add floating ip worker-${i}.${DOMAIN} $(openstack floating ip create public_network -f value -c floating_ip_address)
 done
@@ -543,18 +552,18 @@ openstack server list -f table -c Name -c Networks -c Flavor -c Status
 > output
 
 ```
-+------------------------+--------+----------------------------------------------------+-----------+
-| Name                   | Status | Networks                                           | Flavor    |
-+------------------------+--------+----------------------------------------------------+-----------+
-| k8sosp.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.4, X.X.X.X  | m1.small  |
-| node-2.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.22, X.X.X.X | m1.medium |
-| node-1.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.21, X.X.X.X  | m1.medium |
-| node-0.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.20, X.X.X.X | m1.medium |
-| controller-2.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.12, X.X.X.X | m1.medium |
++----------------------+--------+-----------------------------------------------+-----------+
+| Name                 | Status | Networks                                      | Flavor    |
++----------------------+--------+-----------------------------------------------+-----------+
+| worker-2.k8s.lan     | ACTIVE | kubernetes-the-hard-way=10.240.0.22, X.X.X.X  | m1.medium |
+| worker-1.k8s.lan     | ACTIVE | kubernetes-the-hard-way=10.240.0.21, X.X.X.X  | m1.medium |
+| worker-0.k8s.lan     | ACTIVE | kubernetes-the-hard-way=10.240.0.20, X.X.X.X  | m1.medium |
+| controller-2.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.12, X.X.X.X  | m1.medium |
 | controller-1.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.11, X.X.X.X  | m1.medium |
 | controller-0.k8s.lan | ACTIVE | kubernetes-the-hard-way=10.240.0.10, X.X.X.X  | m1.medium |
-| dns.k8s.lan      | ACTIVE | kubernetes-the-hard-way=10.240.0.9, X.X.X.X   | m1.small  |
-+------------------------+--------+----------------------------------------------------+-----------+
+| k8sosp.k8s.lan       | ACTIVE | kubernetes-the-hard-way=10.240.0.200, X.X.X.X | m1.small  |
+| dns.k8s.lan          | ACTIVE | kubernetes-the-hard-way=10.240.0.100, X.X.X.X | m1.small  |
++----------------------+--------+-----------------------------------------------+-----------+
 ```
 
 > As the DNS server is created internally, it can be a good idea to configure an
