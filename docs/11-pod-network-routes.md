@@ -13,12 +13,12 @@ In this section you will gather the information required to create routes in the
 Create network routes for each worker instance:
 
 ```
-for i in 0 1 2; do
-  SUBNET=$(openstack server show worker-${i}.${DOMAIN} -f value -c properties | awk -F= '{ print $2 }')
-  INTERNAL_IP=$(openstack server show worker-${i}.${DOMAIN} -f value -c addresses | awk -F'[=,]' '{print $2}')
-  openstack router set kubernetes-the-hard-way-router --route destination=${SUBNET},gateway=${INTERNAL_IP}
-done
-
+openstack router set kubernetes-the-hard-way-router \
+  --route destination=10.200.0.0/24,gateway=10.240.0.20
+openstack router set kubernetes-the-hard-way-router \
+  --route destination=10.200.1.0/24,gateway=10.240.0.21
+openstack router set kubernetes-the-hard-way-router \
+  --route destination=10.200.2.0/24,gateway=10.240.0.22
 ```
 
 List the routes in the `kubernetes-the-hard-way-router` router:

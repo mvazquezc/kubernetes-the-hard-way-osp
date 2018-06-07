@@ -16,8 +16,8 @@ kubectl create secret generic kubernetes-the-hard-way \
 Print a hexdump of the `kubernetes-the-hard-way` secret stored in etcd:
 
 ```
-ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN} \
-  --command "sudo ETCDCTL_API=3 /usr/local/bin/etcdctl get \
+ssh -i ~/.ssh/k8s.pem centos@controller-0.${DOMAIN} \
+  "sudo ETCDCTL_API=3 /usr/local/bin/etcdctl get \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/etcd/ca.pem \
   --cert=/etc/etcd/kubernetes.pem \
@@ -32,17 +32,17 @@ ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN} \
 00000010  73 2f 64 65 66 61 75 6c  74 2f 6b 75 62 65 72 6e  |s/default/kubern|
 00000020  65 74 65 73 2d 74 68 65  2d 68 61 72 64 2d 77 61  |etes-the-hard-wa|
 00000030  79 0a 6b 38 73 3a 65 6e  63 3a 61 65 73 63 62 63  |y.k8s:enc:aescbc|
-00000040  3a 76 31 3a 6b 65 79 31  3a 7b 8e 59 78 0f 59 09  |:v1:key1:{.Yx.Y.|
-00000050  e2 6a ce cd f4 b6 4e ec  bc 91 aa 87 06 29 39 8d  |.j....N......)9.|
-00000060  70 e8 5d c4 b1 66 69 49  60 8f c0 cc 55 d3 69 2b  |p.]..fiI`...U.i+|
-00000070  49 bb 0e 7b 90 10 b0 85  5b b1 e2 c6 33 b6 b7 31  |I..{....[...3..1|
-00000080  25 99 a1 60 8f 40 a9 e5  55 8c 0f 26 ae 76 dc 5b  |%..`.@..U..&.v.[|
-00000090  78 35 f5 3e c1 1e bc 21  bb 30 e2 0c e3 80 1e 33  |x5.>...!.0.....3|
-000000a0  90 79 46 6d 23 d8 f9 a2  d7 5d ed 4d 82 2e 9a 5e  |.yFm#....].M...^|
-000000b0  5d b6 3c 34 37 51 4b 83  de 99 1a ea 0f 2f 7c 9b  |].<47QK....../|.|
-000000c0  46 15 93 aa ba 72 ba b9  bd e1 a3 c0 45 90 b1 de  |F....r......E...|
-000000d0  c4 2e c8 d0 94 ec 25 69  7b af 08 34 93 12 3d 1c  |......%i{..4..=.|
-000000e0  fd 23 9b ba e8 d1 25 56  f4 0a                    |.#....%V..|
+00000040  3a 76 31 3a 6b 65 79 31  3a 1c 06 90 82 4d db 7f  |:v1:key1:....M..|
+00000050  d8 76 63 a3 b4 eb 9f bc  28 fd 57 28 c1 9b 06 42  |.vc.....(.W(...B|
+00000060  86 04 aa 3e ea 01 1b 0a  84 24 73 3a 95 fd b5 42  |...>.....$s:...B|
+00000070  80 46 11 d5 a4 a4 4a 3f  29 cc f6 06 68 91 07 8d  |.F....J?)...h...|
+00000080  aa 87 2d 9d 41 ce f2 64  ba 2e 47 fd 72 51 7b 8f  |..-.A..d..G.rQ{.|
+00000090  19 1e e5 85 3f 73 0d ce  05 19 d3 de 6e 9a 98 71  |....?s......n..q|
+000000a0  e7 21 61 68 cc ee 92 19  b1 7f 2f 36 35 d4 3f 4c  |.!ah....../65.?L|
+000000b0  ed 9e 38 20 14 71 a3 31  5e f3 42 df 15 26 ef 9b  |..8 .q.1^.B..&..|
+000000c0  9c c3 73 cb fd 3c a5 b1  f9 b6 39 0d ad 61 c9 a9  |..s..<....9..a..|
+000000d0  34 b9 ae 8a 93 dd c7 1e  b2 04 07 9a 09 29 25 cc  |4............)%.|
+000000e0  c1 30 6b 7d fa 1b 82 d2  f8 0a                    |.0k}......|
 000000ea
 ```
 
@@ -104,13 +104,13 @@ curl --head http://127.0.0.1:8080
 
 ```
 HTTP/1.1 200 OK
-Server: nginx/1.13.12
-Date: Mon, 14 May 2018 13:59:21 GMT
+Server: nginx/1.15.0
+Date: Thu, 07 Jun 2018 10:38:30 GMT
 Content-Type: text/html
 Content-Length: 612
-Last-Modified: Mon, 09 Apr 2018 16:01:09 GMT
+Last-Modified: Tue, 05 Jun 2018 12:00:18 GMT
 Connection: keep-alive
-ETag: "5acb8e45-264"
+ETag: "5b167b52-264"
 Accept-Ranges: bytes
 ```
 
@@ -136,7 +136,7 @@ kubectl logs $POD_NAME
 > output
 
 ```
-127.0.0.1 - - [14/May/2018:13:59:21 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.52.1" "-"
+127.0.0.1 - - [07/Jun/2018:10:38:30 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.59.0" "-"
 ```
 
 ### Exec
@@ -152,7 +152,7 @@ kubectl exec -ti $POD_NAME -- nginx -v
 > output
 
 ```
-nginx version: nginx/1.13.12
+nginx version: nginx/1.15.0
 ```
 
 ## Services
