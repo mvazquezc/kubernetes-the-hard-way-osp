@@ -282,14 +282,14 @@ export INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
 cat <<EOF | sudo tee /var/named/dynamic/zone.db
 $ORIGIN .
 $TTL 300	; 5 minutes
-${DOMAIN}		IN SOA	dns.${DOMAIN}. admin.${DOMAIN}. (
+${DOMAIN} IN SOA dns.${DOMAIN}. admin.${DOMAIN}. (
         1          ; serial
         28800      ; refresh (8 hours)
         3600       ; retry (1 hour)
         604800     ; expire (1 week)
         86400      ; minimum (1 day)
         )
-        NS	dns.${DOMAIN}.
+        NS dns.${DOMAIN}.
 $ORIGIN ${DOMAIN}.
 $TTL 3600	; 1 hour
 dns          A ${INTERNAL_IP}
@@ -299,6 +299,7 @@ controller-2 A 10.240.0.12
 worker-0     A 10.240.0.20
 worker-1     A 10.240.0.21
 worker-2     A 10.240.0.22
+EOF
 ```
 
 Verify everything is properly configured:
