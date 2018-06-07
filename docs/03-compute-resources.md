@@ -234,11 +234,11 @@ sudo cp /etc/named.conf{,.orig}
 cat <<EOF | sudo tee /etc/named.conf
 options {
   listen-on port 53 { any; };
-  directory 	"/var/named";
-  dump-file 	"/var/named/data/cache_dump.db";
+  directory "/var/named";
+  dump-file "/var/named/data/cache_dump.db";
   statistics-file "/var/named/data/named_stats.txt";
   memstatistics-file "/var/named/data/named_mem_stats.txt";
-  allow-query     { any; };
+  allow-query { any; };
   forward only;
   forwarders { ${UPSTREAM_DNS}; };
   managed-keys-directory "/var/named/dynamic";
