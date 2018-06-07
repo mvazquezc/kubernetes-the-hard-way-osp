@@ -88,7 +88,7 @@ do
   openstack security group rule create \
       --ingress \
       --protocol ${protocol} \
-      --src-group kubernetes-the-hard-way-allow-internal \
+      --remote-group kubernetes-the-hard-way-allow-internal \
       kubernetes-the-hard-way-allow-internal
 done
 ```
@@ -233,31 +233,29 @@ sudo cp /etc/named.conf{,.orig}
 
 cat <<EOF | sudo tee /etc/named.conf
 options {
-	listen-on port 53 { any; };
-	directory 	"/var/named";
-	dump-file 	"/var/named/data/cache_dump.db";
-	statistics-file "/var/named/data/named_stats.txt";
-	memstatistics-file "/var/named/data/named_mem_stats.txt";
-	allow-query     { any; };
+  listen-on port 53 { any; };
+  directory 	"/var/named";
+  dump-file 	"/var/named/data/cache_dump.db";
+  statistics-file "/var/named/data/named_stats.txt";
+  memstatistics-file "/var/named/data/named_mem_stats.txt";
+  allow-query     { any; };
   forward only;
   forwarders { ${UPSTREAM_DNS}; };
-
-	managed-keys-directory "/var/named/dynamic";
-
-	pid-file "/run/named/named.pid";
-	session-keyfile "/run/named/session.key";
+  managed-keys-directory "/var/named/dynamic";
+  pid-file "/run/named/named.pid";
+  session-keyfile "/run/named/session.key";
 };
 
 logging {
-        channel default_debug {
-                file "data/named.run";
-                severity dynamic;
-        };
+  channel default_debug {
+    file "data/named.run";
+    severity dynamic;
+  };
 };
 
 zone "." IN {
-	type hint;
-	file "named.ca";
+  type hint;
+  file "named.ca";
 };
 
 include "/etc/named.rfc1912.zones";
@@ -285,13 +283,13 @@ cat <<EOF | sudo tee /var/named/dynamic/zone.db
 $ORIGIN .
 $TTL 300	; 5 minutes
 ${DOMAIN}		IN SOA	dns.${DOMAIN}. admin.${DOMAIN}. (
-				1          ; serial
-				28800      ; refresh (8 hours)
-				3600       ; retry (1 hour)
-				604800     ; expire (1 week)
-				86400      ; minimum (1 day)
-				)
-			NS	dns.${DOMAIN}.
+        1          ; serial
+        28800      ; refresh (8 hours)
+        3600       ; retry (1 hour)
+        604800     ; expire (1 week)
+        86400      ; minimum (1 day)
+        )
+        NS	dns.${DOMAIN}.
 $ORIGIN ${DOMAIN}.
 $TTL 3600	; 1 hour
 dns			     A	${INTERNAL_IP}
