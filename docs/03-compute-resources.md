@@ -292,7 +292,7 @@ ${DOMAIN}		IN SOA	dns.${DOMAIN}. admin.${DOMAIN}. (
         NS	dns.${DOMAIN}.
 $ORIGIN ${DOMAIN}.
 $TTL 3600	; 1 hour
-dns			     A	${INTERNAL_IP}
+dns          A ${INTERNAL_IP}
 controller-0 A 10.240.0.10
 controller-1 A 10.240.0.11
 controller-2 A 10.240.0.12
