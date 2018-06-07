@@ -158,16 +158,16 @@ create an instance and setup a proper DNS following the next instructions.
 Create a security group to allow DNS communication within the internal network:
 
 ```
-openstack security group create dns-sg
+openstack security group create kubernetes-the-hard-way-allow-dns
 openstack security group rule create \
     --ingress \
     --protocol icmp \
-    dns-sg
+    kubernetes-the-hard-way-allow-dns
 openstack security group rule create \
     --ingress \
     --protocol tcp \
     --dst-port 22 \
-    dns-sg
+    kubernetes-the-hard-way-allow-dns
 for PROTO in udp tcp;
 do
   openstack security group rule create \
@@ -175,7 +175,7 @@ do
     --protocol $PROTO \
     --dst-port 53 \
     --remote-ip 10.240.0.0/24 \
-    dns-sg;
+    kubernetes-the-hard-way-allow-dns;
 done
 ```
 
@@ -186,7 +186,7 @@ used.
 export DOMAIN='k8s.lan'
 openstack server create \
     --nic net-id=$(openstack network show kubernetes-the-hard-way -f value -c id) \
-    --security-group=dns-sg \
+    --security-group=kubernetes-the-hard-way-allow-dns \
     --flavor m1.small \
     --image CentOS-7-x86_64-GenericCloud-1804_02 \
     --key-name k8s-the-hard-way \

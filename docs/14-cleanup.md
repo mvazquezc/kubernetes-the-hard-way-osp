@@ -4,56 +4,78 @@ In this lab you will delete the compute resources created during this tutorial.
 
 ## Compute Instances
 
-To do
-<!---
 Delete the controller and worker compute instances:
 
 ```
-gcloud -q compute instances delete \
-  controller-0 controller-1 controller-2 \
-  worker-0 worker-1 worker-2
+openstack server delete \
+  controller-0.${DOMAIN} controller-1.${DOMAIN} controller-2.${DOMAIN} \
+  worker-0.${DOMAIN} worker-1.${DOMAIN} worker-2.${DOMAIN}
 ```
---->
+
+Optionally, delete the DNS and Load Balancer instances:
+
+```
+openstack server delete \
+  k8sosp.${DOMAIN} dns.${DOMAIN}
+```
+
 ## Networking
-To do
-<!---
-Delete the external load balancer network resources:
+
+Delete the `kubernetes-the-hard-way` security groups:
 
 ```
-{
-  gcloud -q compute forwarding-rules delete kubernetes-forwarding-rule \
-    --region $(gcloud config get-value compute/region)
-
-  gcloud -q compute target-pools delete kubernetes-target-pool
-
-  gcloud -q compute http-health-checks delete kubernetes
-
-  gcloud -q compute addresses delete kubernetes-the-hard-way
-}
-```
-
-Delete the `kubernetes-the-hard-way` firewall rules:
-
-```
-gcloud -q compute firewall-rules delete \
-  kubernetes-the-hard-way-allow-nginx-service \
+openstack security group delete \
   kubernetes-the-hard-way-allow-internal \
   kubernetes-the-hard-way-allow-external \
-  kubernetes-the-hard-way-allow-health-check
+  kubernetes-the-hard-way-allow-dns
 ```
 
-Delete the `kubernetes-the-hard-way` network VPC:
+Delete floating IPs:
+
+```
+openstack floating ip delete $(openstack floating ip list -f value -c ID)
+```
+
+Detach the router and subnet:
+
+```
+openstack router remove subnet kubernetes-the-hard-way-router kubernetes
+openstack router unset --external-gateway kubernetes-the-hard-way-router
+```
+
+Delete unused ports just in case:
+
+```
+for PORT in $(openstack port list --router kubernetes-the-hard-way-router --format=value -c ID)
+do
+  openstack router remove port kubernetes-the-hard-way-router $PORT
+done
+```
+
+Delete the router, subnet and network:
 
 ```
 {
-  gcloud -q compute routes delete \
-    kubernetes-route-10-200-0-0-24 \
-    kubernetes-route-10-200-1-0-24 \
-    kubernetes-route-10-200-2-0-24
+  openstack router delete kubernetes-the-hard-way-router
 
-  gcloud -q compute networks subnets delete kubernetes
+  openstack subnet delete kubernetes
 
-  gcloud -q compute networks delete kubernetes-the-hard-way
+  openstack network delete kubernetes-the-hard-way
 }
 ```
---->
+
+## Image
+
+Optionally delete the image:
+
+```
+openstack image delete CentOS-7-x86_64-GenericCloud-1804_02
+```
+
+## Project
+
+Optionally delete the project:
+
+```
+openstack project delete kubernetes-the-hard-way
+```

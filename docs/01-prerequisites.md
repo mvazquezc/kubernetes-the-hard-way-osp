@@ -15,7 +15,7 @@ ownership by a user and role of that user to be set to member.
 Create a project (tenant) that is to store the OpenStack instances
 
 ```
-openstack project create <project>
+openstack project create kubernetes-the-hard-way
 ```
 
 Create an OpenStack Platform user that has ownership of the previously created project:
@@ -27,7 +27,7 @@ openstack user create --password <password> <username>
 Set the role of the user:
 
 ```
-openstack role add --user <username> --project <project> member
+openstack role add --user <username> --project kubernetes-the-hard-way member
 ```
 
 ## OpenStack CLI
