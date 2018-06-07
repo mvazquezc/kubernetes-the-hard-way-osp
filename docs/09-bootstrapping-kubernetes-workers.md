@@ -4,6 +4,14 @@ In this lab you will bootstrap three Kubernetes worker nodes. The following comp
 
 ## Prerequisites
 
+Fix the workers hostnames just in case:
+
+```
+for instance in worker-0 worker-1 worker-2; do
+  ssh -i ~/.ssh/k8s.pem centos@${instance}.${DOMAIN} sudo hostnamectl set-hostname ${instance}.${DOMAIN}
+done
+```
+
 The commands in this lab must be run on each worker instance: `worker-0`, `worker-1`, and `worker-2`. Login to each worker instance:
 
 ```
@@ -176,8 +184,9 @@ EOF
 
 ```
 {
-  sudo mv ${HOSTNAME}-key.pem ${HOSTNAME}.pem /var/lib/kubelet/
-  sudo mv ${HOSTNAME}.kubeconfig /var/lib/kubelet/kubeconfig
+  SHORTNAME=$(hostname -s)
+  sudo mv ${SHORTNAME}-key.pem ${SHORTNAME}.pem /var/lib/kubelet/
+  sudo mv ${SHORTNAME}.kubeconfig /var/lib/kubelet/kubeconfig
   sudo mv ca.pem /var/lib/kubernetes/
 }
 ```
@@ -202,8 +211,8 @@ clusterDNS:
   - "10.32.0.10"
 podCIDR: "${POD_CIDR}"
 runtimeRequestTimeout: "15m"
-tlsCertFile: "/var/lib/kubelet/${HOSTNAME}.pem"
-tlsPrivateKeyFile: "/var/lib/kubelet/${HOSTNAME}-key.pem"
+tlsCertFile: "/var/lib/kubelet/${SHORTNAME}.pem"
+tlsPrivateKeyFile: "/var/lib/kubelet/${SHORTNAME}-key.pem"
 EOF
 ```
 

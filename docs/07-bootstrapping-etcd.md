@@ -4,10 +4,18 @@ Kubernetes components are stateless and store cluster state in [etcd](https://gi
 
 ## Prerequisites
 
+Fix the controllers hostnames just in case:
+
+```
+for instance in controller-0 controller-1 controller-2; do
+  ssh -i ~/.ssh/k8s.pem centos@${instance}.${DOMAIN} sudo hostnamectl set-hostname ${instance}.${DOMAIN}
+done
+```
+
 The commands in this lab must be run on each controller instance: `controller-0`, `controller-1`, and `controller-2`. Login to each controller:
 
 ```
-ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN}
+ssh -i ~/.ssh/k8s.pem centos@controller-0.${DOMAIN}
 ```
 
 ### Running commands in parallel with tmux
@@ -21,6 +29,7 @@ ssh -i ~/.ssh/k8s.pem controller-0.${DOMAIN}
 Download the official etcd release binaries from the [coreos/etcd](https://github.com/coreos/etcd) GitHub project:
 
 ```
+sudo yum install -y wget
 wget -q --timestamping \
   "https://github.com/coreos/etcd/releases/download/v3.3.5/etcd-v3.3.5-linux-amd64.tar.gz"
 ```
