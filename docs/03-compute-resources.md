@@ -343,7 +343,7 @@ In order to have a proper Kubernetes high available environment, a Load balancer
 is required to distribute the API load. If not using LBaaS, you can create an
 instance and setup a proper Load balancer following the next instructions.
 
-Create an instance to host the DNS service. In this case the CentOS image is
+Create an instance to host the load balancer service. In this case the CentOS image is
 used.
 
 ```
